@@ -1,0 +1,8 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+[remote "origin"]
+	url = git@github.com:alexandr201-1/PGP
+	fetch = +refs/heads/*:refs/remotes/origin/*
