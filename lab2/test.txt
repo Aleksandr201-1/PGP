@@ -1,3 +1,0 @@
-in.data
-out.data
-2 2
