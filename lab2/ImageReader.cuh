@@ -29,7 +29,6 @@ class Image {
     private:
         uint32_t w, h;
         std::vector<uint32_t> buff;
-        //mutable texture<uint32_t, 2, cudaReadModeElementType> img_tex;
 };
 
 #endif
