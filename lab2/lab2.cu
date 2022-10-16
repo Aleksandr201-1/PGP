@@ -8,5 +8,7 @@ int main () {
     Image image(input), result;
     result = std::move(image.SSAA(w, h));
     result.saveToFile(output);
+    image.printInfo();
+    result.printInfo();
     return 0;
 }

@@ -4,8 +4,11 @@
 #include <fstream>
 #include <iostream>
 #include <vector>
+#include <chrono>
 #include <cstdint>
 #include "GPUErrorCheck.cuh"
+
+using duration_t = std::chrono::microseconds;
 
 class Image {
     public:
@@ -19,7 +22,8 @@ class Image {
         void saveToFile (const std::string &path) const;
         void readFromFile (const std::string &path);
 
-        Image SSAA (uint32_t new_w, uint32_t new_h) const;
+        std::pair<Image, float> SSAAgpu (uint32_t new_w, uint32_t new_h) const;
+        std::pair<Image, uint64_t> SSAAcpu (uint32_t new_w, uint32_t new_h) const;
 
         friend std::ifstream &operator>> (std::ifstream &input, Image &image);
         friend std::ofstream &operator<< (std::ofstream &output, const Image &image);

@@ -17,7 +17,7 @@ __global__ void SSAAkernel (uint32_t old_w, uint32_t old_h, uint32_t new_w, uint
                 r += (color >> 24) & 255;
                 g += (color >> 16) & 255;
                 b += (color >> 8)  & 255;
-                a += color  & 255;
+                a += color & 255;
             }
         }
         r = (r / block_size) << 24;
@@ -66,29 +66,29 @@ void Image::readFromFile (const std::string &path) {
     input >> *this;
 }
 
-Image Image::SSAA (uint32_t new_w, uint32_t new_h) const {
+std::pair<Image, float> Image::SSAAgpu (uint32_t new_w, uint32_t new_h) const {
     Image new_image;
     uint32_t *new_buff;
     cudaArray *old_buff;
     cudaChannelFormatDesc channel = cudaCreateChannelDesc<uint32_t>();
 
     // create texture object
-    cudaResourceDesc resDesc;
-    memset(&resDesc, 0, sizeof(resDesc));
-    resDesc.resType = cudaResourceTypeLinear;
-    resDesc.res.linear.devPtr = old_buff;
-    resDesc.res.linear.desc.f = cudaChannelFormatKindFloat;
-    //resDesc.desc.x = 32; // bits per channel
-    //resDesc.res.
-    resDesc.res.linear.sizeInBytes = w * h * sizeof(float);
+    // cudaResourceDesc resDesc;
+    // memset(&resDesc, 0, sizeof(resDesc));
+    // resDesc.resType = cudaResourceTypeLinear;
+    // resDesc.res.linear.devPtr = old_buff;
+    // resDesc.res.linear.desc.f = cudaChannelFormatKindFloat;
+    // //resDesc.desc.x = 32; // bits per channel
+    // //resDesc.res.
+    // resDesc.res.linear.sizeInBytes = w * h * sizeof(float);
 
-    cudaTextureDesc texDesc;
-    memset(&texDesc, 0, sizeof(texDesc));
-    texDesc.readMode = cudaReadModeElementType;
+    // cudaTextureDesc texDesc;
+    // memset(&texDesc, 0, sizeof(texDesc));
+    // texDesc.readMode = cudaReadModeElementType;
 
-    // create texture object: we only have to do this once!
-    cudaTextureObject_t tex;
-    cudaCreateTextureObject(&tex, &resDesc, &texDesc, NULL);
+    // // create texture object: we only have to do this once!
+    // cudaTextureObject_t tex;
+    // cudaCreateTextureObject(&tex, &resDesc, &texDesc, NULL);
 
     gpuErrorCheck(cudaMallocArray(&old_buff, &channel, w, h));
     gpuErrorCheck(cudaMemcpy2DToArray(old_buff, 0, 0, buff.data(), sizeof(uint32_t) * w, sizeof(uint32_t) * w, h, cudaMemcpyHostToDevice));
@@ -102,7 +102,16 @@ Image Image::SSAA (uint32_t new_w, uint32_t new_h) const {
     gpuErrorCheck(cudaBindTextureToArray(img_tex, old_buff, channel));
     gpuErrorCheck(cudaMalloc(&new_buff, sizeof(uint32_t) * new_w * new_h));
 
-    SSAAkernel<<<1024, 1024>>>(w, h, new_w, new_h, new_buff);
+    cudaEvent_t e_start, e_stop;
+	cudaEventCreate(&e_start);
+	cudaEventCreate(&e_stop);
+    cudaEventRecord(e_start, 0);
+    SSAAkernel<<<256, 256>>>(w, h, new_w, new_h, new_buff);
+    cudaEventRecord(e_stop, 0);
+    cudaEventSynchronize(e_stop);
+    float elapsedTime;
+    cudaEventElapsedTime(&elapsedTime, e_start, e_stop);
+
     gpuErrorCheck(cudaGetLastError());
     gpuErrorCheck(cudaDeviceSynchronize());
 
@@ -114,7 +123,42 @@ Image Image::SSAA (uint32_t new_w, uint32_t new_h) const {
     gpuErrorCheck(cudaUnbindTexture(img_tex));
     gpuErrorCheck(cudaFreeArray(old_buff));
     gpuErrorCheck(cudaFree(new_buff));
-    return new_image;
+    return std::make_pair(new_image, elapsedTime);
+}
+
+std::pair<Image, uint64_t> Image::SSAAcpu (uint32_t new_w, uint32_t new_h) const {
+    Image new_image;
+    new_image.h = new_h;
+    new_image.w = new_w;
+    new_image.buff.resize(new_h * new_w);
+    uint32_t idx = 0, offset = 1, old_w = w, old_h = h;
+    std::chrono::time_point <std::chrono::system_clock> startt, endt;
+
+    startt = std::chrono::system_clock::now();
+    uint32_t block_w = old_w / new_w, block_h = old_h / new_h;
+    uint32_t block_size = block_w * block_h, block_count = new_h * new_w;
+    while (idx < block_count) {
+        uint32_t i0 = idx / new_w, j0 = idx % new_w;
+        uint32_t r = 0, g = 0, b = 0, a = 0;
+        for (uint32_t i1 = 0; i1 < block_h; ++i1) {
+            for (uint32_t j1 = 0; j1 < block_w; ++j1) {
+                //uint32_t color = tex2D(img_tex, j1 + j0 * block_w, i1 + i0 * block_h);
+                uint32_t color = buff[j1];
+                r += (color >> 24) & 255;
+                g += (color >> 16) & 255;
+                b += (color >> 8)  & 255;
+                a += color & 255;
+            }
+        }
+        r = (r / block_size) << 24;
+        g = (g / block_size) << 16;
+        b = (b / block_size) << 8;
+        a = a / block_size;
+        new_image.buff[i0 * new_w + j0] = r + g + b + a;
+        idx += offset;
+    }
+    endt = std::chrono::system_clock::now();
+    return std::make_pair(new_image, std::chrono::duration_cast <duration_t>(endt - startt).count());
 }
 
 std::ifstream &operator>> (std::ifstream &input, Image &image) {

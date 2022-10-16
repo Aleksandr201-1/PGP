@@ -67,17 +67,24 @@ int main () {
     for (int i = 0; i < COUNT_OF_ARRAYS; ++i) {
         cudaMemcpy(dev_arrays2 + i * n, arrays[i], sizeof(double) * n, cudaMemcpyHostToDevice);
     }
-
+    
     std::chrono::time_point <std::chrono::system_clock> startt, endt;
     startt = std::chrono::system_clock::now();
     kernel_cpu(dev_arrays1, COUNT_OF_ARRAYS, n);
     endt = std::chrono::system_clock::now();
     printf("CPU time: %lumcs\n", std::chrono::duration_cast <duration_t>(endt - startt).count());
 
-    startt = std::chrono::system_clock::now();
-    kernel_gpu<<<32, 32>>>(dev_arrays2, COUNT_OF_ARRAYS, n);
-    endt = std::chrono::system_clock::now();
-    printf("GPU time: %lumcs\n", std::chrono::duration_cast <duration_t>(endt - startt).count());
+
+    cudaEvent_t e_start, e_stop;
+	cudaEventCreate(&e_start);
+	cudaEventCreate(&e_stop);
+    cudaEventRecord(e_start, 0);
+    kernel_gpu<<<1, 1>>>(dev_arrays2, COUNT_OF_ARRAYS, n);
+    cudaEventRecord(e_stop, 0);
+    cudaEventSynchronize(e_stop);
+    float elapsedTime;
+    cudaEventElapsedTime(&elapsedTime, e_start, e_stop);
+    printf("GPU time: %fmcs\n", elapsedTime);
 
     // for (int i = 0; i < n; ++i) {
     //     printf("%.10e", dev_arrays[i]);
