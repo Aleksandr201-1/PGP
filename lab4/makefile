@@ -1,18 +1,14 @@
 #CC = /usr/local/cuda/bin/nvcc
 CC = nvcc
-CFLAGS = --std=c++11 -Werror cross-execution-space-call -lm --expt-extended-lambda
+CFLAGS = --std=c++11 -Werror cross-execution-space-call -lm
 SOURSES = lab4.cu Matrix.cu
 OBJ = $(SOURSES:.cu=.o)
 BIN = lab4
 
 all: $(BIN)
 
-$(BIN):# $(OBJ)
-#	$(CC) $(CFLAGS) -dc -c $(SOURSES)
+$(BIN):
 	$(CC) $(CFLAGS) -o $(BIN) $(SOURSES)
-
-#$(OBJ):
-#	$(CC) $(CFLAGS) -dc -c $(SOURSES)
 
 clean:
 	rm -f *.o $(BIN)
