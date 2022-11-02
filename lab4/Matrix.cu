@@ -40,14 +40,14 @@ __global__ void iteration (double *old_data, double *new_data, uint64_t n, uint6
     int offsetY = gridDim.y * blockDim.y;
 
     for (uint64_t i = idx + id + 1; i < n; i += offsetX) {
-        double coeff = old_data[i + n * id] / old_data[id + n * id];
+        double coeff = old_data[i + n * id];// / old_data[id + n * id];
         for (uint64_t j = idy; j < n; j += offsetY) {
             old_data[i + n * j] -= old_data[id + n * j] * coeff;//old_data[i + n * id];
             new_data[i + n * j] -= new_data[id + n * j] * coeff;//old_data[i + n * id];
         }
     }
     // for (uint64_t i = idx; i < n; i += offsetX) {
-    //     double coeff = old_data[i + n * id] / old_data[id + n * id];
+    //     double coeff = old_data[i + n * id];// / old_data[id + n * id];
     //     for (uint64_t j = idy + id + 1; j < n; j += offsetY) {
     //         old_data[i * n + j] -= old_data[i * n + id] * coeff;//old_data[id * n + j];
     //         new_data[i * n + j] -= new_data[i * n + id] * coeff;//old_data[id * n + j];
@@ -169,19 +169,34 @@ Matrix Matrix::reverse () const {
         thrust::device_ptr<double> device_data = thrust::device_pointer_cast(old_data + i * n);
         thrust::device_ptr<double> max = thrust::max_element(device_data + i, device_data + n, check);
         uint64_t idx = max - device_data;
+
+        Matrix tmp;
+        tmp.n = n;
+        tmp.m = m;
+        tmp.data.resize(n * m);
+
         if (i != idx) {
             swapRows<<<1024, 1024>>>(old_data, new_data, n, i, idx);
             gpuErrorCheck(cudaGetLastError());
             gpuErrorCheck(cudaThreadSynchronize());
         }
 
+        gpuErrorCheck(cudaMemcpy(&tmp.data[0], old_data, sizeof(double) * n * m, cudaMemcpyDeviceToHost));
+        std::cout << "After swap:\n" << tmp;
+
         normalisation<<<1024, 1024>>>(old_data, new_data, n, i);
         gpuErrorCheck(cudaGetLastError());
         gpuErrorCheck(cudaThreadSynchronize());
 
+        gpuErrorCheck(cudaMemcpy(&tmp.data[0], old_data, sizeof(double) * n * m, cudaMemcpyDeviceToHost));
+        std::cout << "After normalisation:\n" << tmp;
+
         iteration<<<1024, 1024>>>(old_data, new_data, n, i);
         gpuErrorCheck(cudaGetLastError());
         gpuErrorCheck(cudaThreadSynchronize());
+
+        gpuErrorCheck(cudaMemcpy(&tmp.data[0], old_data, sizeof(double) * n * m, cudaMemcpyDeviceToHost));
+        std::cout << "After iter:\n" << tmp;
     }
     // for (uint64_t i = 0; i < n; ++i) {
     //     normalisation<<<1024, 1024>>>(old_data, new_data, n, i);
