@@ -19,6 +19,7 @@ class Matrix {
         Matrix (Matrix &&matrix);
         Matrix (uint64_t n, uint64_t m, const std::vector<double> &buff);
         Matrix (uint64_t n, uint64_t m, double *buff);
+        Matrix (uint64_t n, uint64_t m);
         ~Matrix ();
 
         double &operator() (uint64_t i, uint64_t j);
@@ -30,8 +31,6 @@ class Matrix {
         Matrix reverse () const;
 
         friend const Matrix operator* (const Matrix &m1, const Matrix &m2);
-
-        void printMatrix () const;
 
         friend std::istream &operator>> (std::istream &input, Matrix &matrix);
         friend std::ostream &operator<< (std::ostream &output, const Matrix &matrix);
