@@ -12,8 +12,6 @@ int main () {
     Matrix input(n), output;
     std::cin >> input;
     output = std::move(input.reverse());
-    //output.printMatrix();
     std::cout << output;
-    std::cout << "mul:\n" << input * output;
     return 0;
 }
