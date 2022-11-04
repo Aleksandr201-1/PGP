@@ -41,6 +41,7 @@ __device__ double getArg (uint32_t color, uint64_t idx) {
     double ans = 0;
     Vec3 tmp1 = colorToVec3(color) - avg_gpu[idx], tmp2;
     initVec3(tmp2);
+    //tmp2 = tmp1;
     for (uint64_t i = 0; i < 3; ++i) {
         for (uint64_t j = 0; j < 3; ++j) {
             tmp2[i] += tmp1[j] * cov_gpu[idx](j, i);
@@ -51,26 +52,22 @@ __device__ double getArg (uint32_t color, uint64_t idx) {
 }
 
 __global__ void MahalanobisKernel (uint32_t w, uint32_t h, uint64_t nc, uint32_t *data) {
-    //int idy = blockIdx.y * blockDim.y + threadIdx.y;
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    //int offsetY = gridDim.y * blockDim.y;
     int offsetX = gridDim.x * blockDim.x;
 
-    //for (uint64_t i = idy; i < h; i += offsetY) {
-        for (uint64_t i = idx; i < w * h; i += offsetX) {
-            uint32_t color = data[i];
-            double max = getArg(color, 0);
-            uint32_t curr_class = 0;
-            for (uint64_t k = 1; k < nc; ++k) {
-                double tmp = getArg(color, k);
-                if (max <= tmp) {
-                    max = tmp;
-                    curr_class = k;
-                }
+    for (uint64_t i = idx; i < w * h; i += offsetX) {
+        uint32_t color = data[i];
+        double max = getArg(color, 0);
+        uint32_t curr_class = 0;
+        for (uint64_t k = 1; k < nc; ++k) {
+            double tmp = getArg(color, k);
+            if (max < tmp) {
+                max = tmp;
+                curr_class = k;
             }
-            data[i] += curr_class;
         }
-    //}
+        data[i] += curr_class;
+    }
 }
 
 Image::Image () {
@@ -118,7 +115,8 @@ Image Image::MahalanobisDistance (const std::vector<uint64_t> &data, uint64_t nc
     gpuErrorCheck(cudaMalloc(&old_buff, sizeof(uint32_t) * w * h));
     gpuErrorCheck(cudaMemcpy(old_buff, buff.data(), sizeof(uint32_t) * w * h, cudaMemcpyHostToDevice));
 
-    MahalanobisKernel<<<dim3(32, 32), dim3(32, 32)>>>(w, h, nc, old_buff);
+    MahalanobisKernel<<<1024, 1024>>>(w, h, nc, old_buff);
+    gpuErrorCheck(cudaGetLastError());
 
     new_image.h = h;
     new_image.w = w;

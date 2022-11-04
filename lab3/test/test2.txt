@@ -1,5 +1,5 @@
-in2.data
-o2.data
+test/in2.data
+test/o2.data
 5
 4 5 0 0 2 6 1 1 1
 6 2 0 7 1 1 0 1 2 6 0 4 0
