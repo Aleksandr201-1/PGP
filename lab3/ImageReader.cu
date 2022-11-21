@@ -41,7 +41,6 @@ __device__ double getArg (uint32_t color, uint64_t idx) {
     double ans = 0;
     Vec3 tmp1 = colorToVec3(color) - avg_gpu[idx], tmp2;
     initVec3(tmp2);
-    //tmp2 = tmp1;
     for (uint64_t i = 0; i < 3; ++i) {
         for (uint64_t j = 0; j < 3; ++j) {
             tmp2[i] += tmp1[j] * cov_gpu[idx](j, i);
@@ -67,6 +66,20 @@ __global__ void MahalanobisKernel (uint32_t w, uint32_t h, uint64_t nc, uint32_t
             }
         }
         data[i] += curr_class;
+    }
+}
+
+void Image::swapData () {
+    uint32_t v1, v2, v3, v4;
+    for (uint32_t i = 0; i < h; ++i) {
+        for (uint32_t j = 0; j < w; ++j) {
+            uint32_t &p = buff[i * w + j];
+            v1 = (p >> 24) & 255;
+            v2 = (p >> 16) & 255;
+            v3 = (p >> 8) & 255;
+            v4 = p & 255;
+            p = (v4 << 24) + (v3 << 16) + (v2 << 8) + v1;
+        }
     }
 }
 
@@ -108,22 +121,21 @@ void Image::readFromFile (const std::string &path) {
 }
 
 Image Image::MahalanobisDistance (const std::vector<uint64_t> &data, uint64_t nc) const {
-    Image new_image;
+    Image new_image(w, h, buff);
+    new_image.swapData();
     uint32_t *old_buff;
-    AvgCovInit(nc, data, *this);
+    AvgCovInit(nc, data, new_image);
 
     gpuErrorCheck(cudaMalloc(&old_buff, sizeof(uint32_t) * w * h));
-    gpuErrorCheck(cudaMemcpy(old_buff, buff.data(), sizeof(uint32_t) * w * h, cudaMemcpyHostToDevice));
+    gpuErrorCheck(cudaMemcpy(old_buff, new_image.buff.data(), sizeof(uint32_t) * w * h, cudaMemcpyHostToDevice));
 
     MahalanobisKernel<<<1024, 1024>>>(w, h, nc, old_buff);
     gpuErrorCheck(cudaGetLastError());
 
-    new_image.h = h;
-    new_image.w = w;
-    new_image.buff.resize(w * h);
     gpuErrorCheck(cudaMemcpy(&new_image.buff[0], old_buff, sizeof(uint32_t) * w * h, cudaMemcpyDeviceToHost));
 
     gpuErrorCheck(cudaFree(old_buff));
+    new_image.swapData();
     return new_image;
 }
 
@@ -143,18 +155,14 @@ std::ifstream &operator>> (std::ifstream &input, Image &image) {
     input.read(reinterpret_cast<char *>(&image.w), sizeof(image.w));
     input.read(reinterpret_cast<char *>(&image.h), sizeof(image.h));
     image.buff.resize(image.w * image.h);
-    for (uint64_t i = 0; i < image.buff.size(); ++i) {
-        input.read(reinterpret_cast<char *>(&image.buff[i]), sizeof(uint32_t));
-    }
+    input.read(reinterpret_cast<char *>(&image.buff[0]), sizeof(uint32_t) * image.buff.size());
     return input;
 }
 
 std::ofstream &operator<< (std::ofstream &output, const Image &image) {
     output.write(reinterpret_cast<const char *>(&image.w), sizeof(image.w));
     output.write(reinterpret_cast<const char *>(&image.h), sizeof(image.h));
-    for (uint64_t i = 0; i < image.buff.size(); ++i) {
-        output.write(reinterpret_cast<const char *>(&image.buff[i]), sizeof(uint32_t));
-    }
+    output.write(reinterpret_cast<const char *>(&image.buff[0]), sizeof(uint32_t) * image.buff.size());
     return output;
 }
 

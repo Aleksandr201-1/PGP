@@ -4,7 +4,6 @@
 #include <iostream>
 #include <cstdint>
 #include <vector>
-//#include <iterator>
 #include <thrust/extrema.h>
 #include <thrust/device_vector.h>
 #include "GPUErrorCheck.cuh"
@@ -29,8 +28,6 @@ class Matrix {
         Matrix reverse () const;
 
         friend const Matrix operator* (const Matrix &m1, const Matrix &m2);
-
-        void printMatrix () const;
 
         friend std::istream &operator>> (std::istream &input, Matrix &matrix);
         friend std::ostream &operator<< (std::ostream &output, const Matrix &matrix);

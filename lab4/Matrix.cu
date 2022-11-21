@@ -6,49 +6,76 @@ struct Comparator {
     }
 };
 
-__global__ void swapRows (double *data, uint64_t n, uint64_t i, uint64_t j, uint64_t border) {
+__global__ void colInit (double *data, double *col, uint64_t n, uint64_t i) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int offsetX = gridDim.x * blockDim.x;
+
+    for (uint64_t k = idx + i; k < n; k += offsetX) {
+        col[k] = data[k * n + i];
+    }
+}
+
+__global__ void swapRows (double *data, double *new_data, uint64_t n, uint64_t i, uint64_t j, uint64_t border) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int offsetX = gridDim.x * blockDim.x;
 
     double tmp;
-    for (uint64_t k = idx + i; k < n + border + 1; k += offsetX) {
-        tmp = data[k * n + i];
-        data[k * n + i] = data[k * n + j];
-        data[k * n + j] = tmp;
+    for (uint64_t k = idx + i; k < n; k += offsetX) {
+        tmp = data[i * n + k];
+        data[i * n + k] = data[j * n + k];
+        data[j * n + k] = tmp;
+    }
+    for (uint64_t k = idx; k < border + 1; k += offsetX) {
+        tmp = new_data[i * n + k];
+        new_data[i * n + k] = new_data[j * n + k];
+        new_data[j * n + k] = tmp;
     }
 }
 
-__global__ void normalisation (double *data, uint64_t n, uint64_t i, uint64_t border) {
+__global__ void normalisation (double *data, double *new_data, uint64_t n, uint64_t id, uint64_t border) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int offsetX = gridDim.x * blockDim.x;
 
-    for (uint64_t k = idx + i + 1; k < n + border + 1; k += offsetX) {
-        data[k * n + i] /= data[i * n + i];
+    double coeff;
+    coeff = data[id * n + id];
+    for (uint64_t k = idx + id + 1; k < n; k += offsetX) {
+        data[id * n + k] /= coeff;
+    }
+    for (uint64_t k = idx; k < border + 1; k += offsetX) {
+        new_data[id * n + k] /= coeff;
     }
 }
 
-__global__ void iteration (double *data, uint64_t n, uint64_t id, uint64_t border) {
+__global__ void iteration (double *data, double *new_data, uint64_t n, uint64_t id, uint64_t border) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int idy = blockIdx.y * blockDim.y + threadIdx.y;
     int offsetX = gridDim.x * blockDim.x;
     int offsetY = gridDim.y * blockDim.y;
 
-    for (uint64_t i = idx + id + 1; i < n + border + 1; i += offsetX) {
-        for (uint64_t j = idy + id + 1; j < n; j += offsetY) {
-            data[i * n + j] -= data[i * n + id] * data[id * n + j];
+    double coeff;
+
+    for (uint64_t i = idy + id + 1; i < n; i += offsetY) {
+        coeff = data[i * n + id];
+        for (uint64_t j = idx + id + 1; j < n; j += offsetX) {
+            data[i * n + j] -= coeff *  data[id * n + j];
+        }
+        for (uint64_t j = idx; j < border + 1; j += offsetX) {
+            new_data[i * n + j] -= coeff * new_data[id * n + j];
         }
     }
 }
 
-__global__ void backIteration (double *data, uint64_t n, uint64_t id) {
+__global__ void backIteration (double *data, double *new_data, uint64_t n, uint64_t id) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int idy = blockIdx.y * blockDim.y + threadIdx.y;
     int offsetX = gridDim.x * blockDim.x;
     int offsetY = gridDim.y * blockDim.y;
 
-    for (uint64_t i = idx + id + 1; i < 2 * n; i += offsetX) {
-        for (uint64_t j = idy; j <= id - 1; j += offsetY) {
-            data[i * n + j] -= data[i * n + id] * data[id * n + j];
+    double coeff;
+    for (uint64_t i = idy; i <= id - 1; i += offsetY) {
+        coeff = data[i * n + id];
+        for (uint64_t j = idx; j < n; j += offsetX) {
+            new_data[i * n + j] -= coeff * new_data[id * n + j];
         }
     }
 }
@@ -107,57 +134,39 @@ Matrix &Matrix::operator= (Matrix &&matrix) {
 }
 
 Matrix Matrix::reverse () const {
-    Matrix ans(n), tmp(2 * n, n);
-    double *old_data;
+    Matrix ans(n);
+    double *old_data, *new_data, *col;
 
-    for (uint64_t i = 0; i < n; ++i) {
-        for (uint64_t j = 0; j < n; ++j) {
-            tmp(j, i) = data[i * m + j];
-        }
-    }
-    for (uint64_t i = 0; i < n; ++i) {
-        tmp(i + n, i) = 1;
-    }
-
-    gpuErrorCheck(cudaMalloc(&old_data, sizeof(double) * n * n * 2));
-    gpuErrorCheck(cudaMemcpy(old_data, tmp.data.data(), sizeof(double) * n * n * 2, cudaMemcpyHostToDevice));
+    gpuErrorCheck(cudaMalloc(&old_data, sizeof(double) * n * n));
+    gpuErrorCheck(cudaMalloc(&new_data, sizeof(double) * n * n));
+    gpuErrorCheck(cudaMalloc(&col, sizeof(double) * n));
+    gpuErrorCheck(cudaMemcpy(old_data, data.data(), sizeof(double) * n * n, cudaMemcpyHostToDevice));
+    gpuErrorCheck(cudaMemcpy(new_data, ans.data.data(), sizeof(double) * n * n, cudaMemcpyHostToDevice));
 
     Comparator check;
 
     uint64_t border = 0;
     for (uint64_t i = 0; i < n - 1; ++i) {
-        thrust::device_ptr<double> device_data = thrust::device_pointer_cast(old_data + i * n);
-        thrust::device_ptr<double> max = thrust::max_element(device_data + i, device_data + n, check);
-        uint64_t idx = max - device_data;
-
+        colInit<<<256, 256>>>(old_data, col, n, i);
+        thrust::device_ptr<double> device_data = thrust::device_pointer_cast(col);
+        uint64_t idx = thrust::max_element(device_data + i, device_data + n, check) - device_data;
         border = std::max(border, idx);
         if (i != idx) {
-            swapRows<<<1024, 1024>>>(old_data, n, i, idx, border);
-            gpuErrorCheck(cudaGetLastError());
+            swapRows<<<256, 256>>>(old_data, new_data, n, i, idx, border);
         }
-
-        normalisation<<<1024, 1024>>>(old_data, n, i, border);
-        gpuErrorCheck(cudaGetLastError());
-
-        iteration<<<1024, 1024>>>(old_data, n, i, border);
-        gpuErrorCheck(cudaGetLastError());
+        normalisation<<<256, 256>>>(old_data, new_data, n, i, border);
+        iteration<<<dim3(32, 32), dim3(32, 32)>>>(old_data, new_data, n, i, border);
     }
-    normalisation<<<1024, 1024>>>(old_data, n, n - 1, n - 1);
-    gpuErrorCheck(cudaGetLastError());
-
+    normalisation<<<256, 256>>>(old_data, new_data, n, n - 1, n - 1);
     for (uint64_t i = n - 1; i > 0; --i) {
-        backIteration<<<1024, 1024>>>(old_data, n, i);
-        gpuErrorCheck(cudaGetLastError());
+        backIteration<<<dim3(32, 32), dim3(32, 32)>>>(old_data, new_data, n, i);
     }
 
-    gpuErrorCheck(cudaMemcpy(&tmp.data[0], old_data, sizeof(double) * n * n * 2, cudaMemcpyDeviceToHost));
-    for (uint64_t i = 0; i < n; ++i) {
-        for (uint64_t j = 0; j < n; ++j) {
-            ans(i, j) = tmp(j + n, i);
-        }
-    }
+    gpuErrorCheck(cudaMemcpy(&ans.data[0], new_data, sizeof(double) * n * n, cudaMemcpyDeviceToHost));
 
     gpuErrorCheck(cudaFree(old_data));
+    gpuErrorCheck(cudaFree(new_data));
+    gpuErrorCheck(cudaFree(col));
     return ans;
 }
 
@@ -175,22 +184,12 @@ const Matrix operator* (const Matrix &m1, const Matrix &m2) {
     return ans;
 }
 
-void Matrix::printMatrix () const {
-    for (uint64_t i = 0; i < n; ++i) {
-        for (uint64_t j = 0; j < m - 1; ++j) {
-            printf("%.10e ", data[i * m + j]);
-        }
-        printf("%.10e\n", data[(i + 1) * m - 1]);
-    }
-}
-
 std::istream &operator>> (std::istream &input, Matrix &matrix) {
     for (uint64_t i = 0; i < matrix.n; ++i) {
         for (uint64_t j = 0; j < matrix.m; ++j) {
             input >> matrix.data[i * matrix.m + j];
         }
     }
-    //std::copy(std::istream_iterator<double>(input), std::istream_iterator<double>(), std::back_inserter(matrix.data));
     return input;
 }
 

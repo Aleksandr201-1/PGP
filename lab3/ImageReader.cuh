@@ -10,6 +10,8 @@
 #include "Vec3.cuh"
 
 class Image {
+    private:
+        void swapData ();
     public:
         explicit Image ();
         explicit Image (const std::string &path);
