@@ -1,0 +1,40 @@
+\textbf{\large Описание программы}
+
+Для преобразования изображения алгоритмом SSAA необходимо разбить исходное изображение на $n \times m$ блоков, где $n$ ~--- соотношение старой ширины к новой, $m$ ~--- старой высоты к новой. Внутри каждого блока происходит суммирование всех значений и деление результата на площадь блока. Таким образом находится средний цвет. Для хранения данных изображения используется текстурная память.
+
+Вызов $SSAAkernel$ происходит с количеством нитей на блок ~--- 1024 и количеством блоков ~--- 1024.
+В самом $SSAAkernel$ я вычисляю общий индекс исполняемой нити $idx$ который и будет индексом в массиве при условии $idx < block\_count$, где $block\_count$ ~--- количество блоков, на которое поделено исходное изображение, смещение $offset$, которое позволяет найти следующий обрабатываемый блок для нити.
+
+Код функции:
+
+\begin{lstlisting}[basicstyle=\normalfont, language=C++]
+__global__ void SSAAkernel (uint32_t old_w, uint32_t old_h, uint32_t new_w, uint32_t new_h, uint32_t *new_buff) {
+    uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t offset = blockDim.x * gridDim.x;
+
+    uint32_t block_w = old_w / new_w, block_h = old_h / new_h;
+    uint32_t block_size = block_w * block_h, block_count = new_h * new_w;
+    while (idx < block_count) {
+        uint32_t i0 = idx / new_w, j0 = idx % new_w;
+        uint32_t r = 0, g = 0, b = 0, a = 0;
+        for (uint32_t i1 = 0; i1 < block_h; ++i1) {
+            for (uint32_t j1 = 0; j1 < block_w; ++j1) {
+                uint32_t color = tex2D(img_tex, j1 + j0 * block_w, i1 + i0 * block_h);
+                r += (color >> 24) & 255;
+                g += (color >> 16) & 255;
+                b += (color >> 8)  & 255;
+                a += color  & 255;
+            }
+        }
+        r = (r / block_size) << 24;
+        g = (g / block_size) << 16;
+        b = (b / block_size) << 8;
+        a = a / block_size;
+        new_buff[i0 * new_w + j0] = r + g + b + a;
+        idx += offset;
+    }
+}
+\end{lstlisting}
+
+\vspace{15pt}
+

@@ -1,0 +1,88 @@
+\textbf{\large Описание программы}
+
+Вспомогательные функции:
+\begin{itemize}
+    \setlength\itemsep{0.0em}
+    \item $swapRows$, 
+    \item $normalisation$,
+    \item $iteration$,
+    \item $backIteration$
+\end{itemize}
+
+Преобразования происходят в цикле. На каждом шаге сначала находится главный элемент и индекс строки, к которой он принадлежит, при помощи библиотеки Thrust. Далее текущая строка и найденная меняются местами функцией $swapRows$, все числа в найденной строке делятся на главный элемент функцией $normalisation$ и, наконец, полученная строка, домноженная на коеффициент, вычитается из нижних так, чтобы все элементы под главным были равны нулю при помощи функции $iteration$.
+
+После оканчания цикла исходная матрица принимает верхний треугольный вид. Для того, чтобы довести матрицу до единичной, используется обратный ход, реализованный в функции $backIteration$.
+
+Вызов функций $iteration$ и $backIteration$ происходит с использованием двухмерной сетки потоков. Все остальные функции вызываются с параметрами ядра $<<<256, 256>>>$.
+
+Код функций:
+
+\begin{lstlisting}[basicstyle=\normalfont, language=C++]
+__global__ void swapRows (double *data, double *new_data, uint64_t n, uint64_t i, uint64_t j, uint64_t border) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int offsetX = gridDim.x * blockDim.x;
+
+    double tmp;
+    for (uint64_t k = idx + i; k < n; k += offsetX) {
+        tmp = data[i * n + k];
+        data[i * n + k] = data[j * n + k];
+        data[j * n + k] = tmp;
+    }
+    for (uint64_t k = idx; k < border + 1; k += offsetX) {
+        tmp = new_data[i * n + k];
+        new_data[i * n + k] = new_data[j * n + k];
+        new_data[j * n + k] = tmp;
+    }
+}
+
+__global__ void normalisation (double *data, double *new_data, uint64_t n, uint64_t id, uint64_t border) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int offsetX = gridDim.x * blockDim.x;
+
+    double coeff;
+    coeff = data[id * n + id];
+    for (uint64_t k = idx + id + 1; k < n; k += offsetX) {
+        data[id * n + k] /= coeff;
+    }
+    for (uint64_t k = idx; k < border + 1; k += offsetX) {
+        new_data[id * n + k] /= coeff;
+    }
+}
+
+__global__ void iteration (double *data, double *new_data, uint64_t n, uint64_t id, uint64_t border) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int idy = blockIdx.y * blockDim.y + threadIdx.y;
+    int offsetX = gridDim.x * blockDim.x;
+    int offsetY = gridDim.y * blockDim.y;
+
+    double coeff;
+
+    for (uint64_t i = idy + id + 1; i < n; i += offsetY) {
+        coeff = data[i * n + id];
+        for (uint64_t j = idx + id + 1; j < n; j += offsetX) {
+            data[i * n + j] -= coeff *  data[id * n + j];
+        }
+        for (uint64_t j = idx; j < border + 1; j += offsetX) {
+            new_data[i * n + j] -= coeff * new_data[id * n + j];
+        }
+    }
+}
+
+__global__ void backIteration (double *data, double *new_data, uint64_t n, uint64_t id) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int idy = blockIdx.y * blockDim.y + threadIdx.y;
+    int offsetX = gridDim.x * blockDim.x;
+    int offsetY = gridDim.y * blockDim.y;
+
+    double coeff;
+    for (uint64_t i = idy; i <= id - 1; i += offsetY) {
+        coeff = data[i * n + id];
+        for (uint64_t j = idx; j < n; j += offsetX) {
+            new_data[i * n + j] -= coeff * new_data[id * n + j];
+        }
+    }
+}
+\end{lstlisting}
+
+\vspace{15pt}
+

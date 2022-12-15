@@ -8,8 +8,11 @@ int main () {
 
     Array in;
     std::cin >> in;
-    in.CountingSort();
-    std::cout << in;
+    auto time = in.CountingSortGPU();
+    //std::cout << std::hex << in;
+    //std::cout << in;
+
+    std::cout << "time: " << time << "\n";
 
     return 0;
 }

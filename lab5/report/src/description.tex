@@ -1,0 +1,103 @@
+\textbf{\large Описание программы}
+
+ОСновные функции:
+\begin{itemize}
+    \setlength\itemsep{0.0em}
+    \item $histogram$, 
+    \item $addKernel$,
+    \item $scanKernel$,
+    \item $CountingSortWrite$
+\end{itemize}
+
+При помощи функции $histogram$ происходит подсчёт одинаковых элементов с использованием атомарной операции $atomicAdd$.
+
+Функция $addKernel$ нужна для добавления массива сумм к результирующему масииву после работы $scanKernel$.
+
+Функция $scanKernel$ рекурсивно считывает блоки данных по 1024 элемента и строит префиксную сумму.
+
+Функция $CountingSortWrite$ записывает отсортированный массив на основе префиксной суммы.
+
+Алгоритм сортировки состоит в последовательном применении гистограммы, сканирования и записи.
+
+Код функций:
+
+\begin{lstlisting}[basicstyle=\normalfont, language=C++]
+__global__ void histogram (uint32_t *count, DATA_TYPE *data, uint32_t n) {
+    uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t offsetX = gridDim.x * blockDim.x;
+
+    for (uint32_t i = idx; i < n; i += offsetX) {
+        atomicAdd(count + data[i], 1);
+    }
+}
+
+__global__ void addKernel(uint32_t* data, uint32_t* sums, uint32_t sums_size) {
+    uint32_t blockId = blockIdx.x + 1;
+    while (blockId < sums_size) {
+        uint32_t idx = blockId * blockDim.x + threadIdx.x;
+        if (blockId != 0) {
+            data[idx] += sums[blockId];
+        }
+        blockId += gridDim.x;
+    }
+}
+
+__global__ void scanKernel(uint32_t* data, uint32_t* sums, uint32_t sums_size) {
+    uint32_t blockId = blockIdx.x;
+    //uint32_t idx = blockId * blockDim.x + threadIdx.x;
+    while (blockId < sums_size) {
+        __shared__ uint32_t tmp[1024];
+        uint32_t step = 1, a, b, tmp_el;
+        tmp[index(threadIdx.x)] = data[blockId * blockDim.x + threadIdx.x];
+        __syncthreads();
+        while (step < BLOCK_SIZE) {
+            if ((threadIdx.x + 1) % (step << 1) == 0) {
+                a = index(threadIdx.x);
+                b = index(threadIdx.x - step);
+                tmp[a] += tmp[b];
+            }
+            step <<= 1;
+            __syncthreads();
+        }
+        if (threadIdx.x == 0) {
+            sums[blockId] = tmp[index(BLOCK_SIZE - 1)];
+            tmp[index(BLOCK_SIZE - 1)] = 0;
+        }
+        __syncthreads();
+        step = 1 << 10 - 1;
+        while (step >= 1) {
+            if ((threadIdx.x + 1) % (step << 1) == 0) {
+                a = index(threadIdx.x);
+                b = index(threadIdx.x - step);
+                tmp_el = tmp[a];
+                tmp[a] += tmp[b];
+                tmp[b] = tmp_el;
+            }
+            step >>= 1;
+            __syncthreads();
+        }
+        data[blockId * blockDim.x + threadIdx.x] = tmp[index(threadIdx.x)];
+        blockId += gridDim.x;
+    }
+}
+
+__global__ void CountingSortWrite (DATA_TYPE *data, uint32_t *count, uint32_t size) {
+    uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t offsetX = gridDim.x * blockDim.x;
+    uint32_t idy = blockIdx.y * blockDim.y + threadIdx.y;
+    uint32_t offsetY = gridDim.y * blockDim.y;
+
+    for (uint32_t i = idx; i < DATA_MAX_EL; i += offsetX) {
+        uint32_t k = count[i];
+        for (uint32_t j = idy + k; j < count[i + 1]; j += offsetY) {
+            data[j] = i;
+        }
+    }
+    for (uint32_t i = idx + count[DATA_MAX_EL]; i < size; i += offsetX) {
+        data[i] = DATA_MAX_EL;
+    }
+}
+\end{lstlisting}
+
+\vspace{15pt}
+

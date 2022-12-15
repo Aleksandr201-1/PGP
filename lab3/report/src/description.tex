@@ -1,0 +1,34 @@
+\textbf{\large Описание программы}
+
+Для преобразования изображения алгоритмом Махаланобиса, нужно предварительно вычислить вектора средних значений пикселей и ковариационные матрицы. Их вычисление происходит на CPU и копируется в разделяемую память.
+
+Далее при помощи формулы Малаханобиса находится класс с наименьшим номером, к которому был отнесен соответствующий пиксель.
+
+Вызов $MahalanobisKernel$ происходит с количеством нитей на блок ~--- 1024 и количеством блоков ~--- 1024.
+В самом $MahalanobisKernel$ я вычисляю общий индекс исполняемой нити $idx$ который и будет индексом пикселя, смещение $offset$, которое позволяет найти следующий обрабатываемый блок для нити.
+
+Код функции:
+
+\begin{lstlisting}[basicstyle=\normalfont, language=C++]
+__global__ void MahalanobisKernel (uint32_t w, uint32_t h, uint64_t nc, uint32_t *data) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int offsetX = gridDim.x * blockDim.x;
+
+    for (uint64_t i = idx; i < w * h; i += offsetX) {
+        uint32_t color = data[i];
+        double max = getArg(color, 0);
+        uint32_t curr_class = 0;
+        for (uint64_t k = 1; k < nc; ++k) {
+            double tmp = getArg(color, k);
+            if (max < tmp) {
+                max = tmp;
+                curr_class = k;
+            }
+        }
+        data[i] += curr_class;
+    }
+}
+\end{lstlisting}
+
+\vspace{15pt}
+

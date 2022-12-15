@@ -5,11 +5,13 @@
 #include <vector>
 #include "GPUErrorCheck.cuh"
 
-using DATA_TYPE = int;
-const uint32_t DATA_MAX_EL = (1lu << 24) - 1;
+using DATA_TYPE = uint32_t;
+const uint32_t DATA_SIZE = sizeof(DATA_TYPE) * 8;
+const uint32_t DATA_MAX_EL = (2lu << 23) - 1;// (DATA_TYPE)(-1);
 
 class Array {
     private:
+        //void histogram ();
         void scan (uint32_t *count, uint32_t size);
     public:
         explicit Array ();
@@ -18,7 +20,8 @@ class Array {
         Array (const std::vector<DATA_TYPE> &data);
         ~Array ();
 
-        void CountingSort ();
+        uint64_t CountingSortGPU ();
+        uint64_t CountingSortCPU ();
 
         friend std::istream &operator>> (std::istream &input, Array &image);
         friend std::ostream &operator<< (std::ostream &output, const Array &image);
