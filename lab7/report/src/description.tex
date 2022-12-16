@@ -1,0 +1,169 @@
+\textbf{\large Описание программы}
+
+ОСновные функции:
+\begin{itemize}
+    \setlength\itemsep{0.0em}
+    \item $iteration1$, 
+    \item $iteration2$,
+    \item $inputTaskInfo$
+\end{itemize}
+
+При помощи функции $iteration1$ происходит обмен граничными слоями между процессами.
+
+При помощи функции $iteration2$ происходит обновление значений во всех ячейках.
+
+Функции $iteration1$ и $iteration2$ используют $MPI\_Send$ и $MPI\_Recv$ для обмена сообщений между процессами.
+
+Функция $inputTaskInfo$ нужна для ввода данных.
+
+Решение задачи реализованно в виде класса. Вызов $MPI_Init$ происходит в конструкторе, $MPI_Finalize$ ~--- в деструкторе.
+
+Итерации проходят в цикле пока не будет достигнута заданная точность.
+
+Код функций:
+
+\begin{lstlisting}[basicstyle=\normalfont, language=C++]
+void DirihleTask::inputTaskInfo () {
+    if (id == 0) {
+        std::cin >> block[X] >> block[Y] >> block[Z];
+        std::cin >> dimension[X] >> dimension[Y] >> dimension[Z];
+        std::cin >> output;
+        std::cin >> eps;
+        std::cin >> l[X] >> l[Y] >> l[Z];
+        std::cin >> u[DOWN] >> u[UP];
+        std::cin >> u[LEFT] >> u[RIGHT];
+        std::cin >> u[FRONT] >> u[BACK];
+        std::cin >> u0;
+    }
+
+    MPI_Bcast(dimension, 3, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(block, 3, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&eps, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&l[0], l.size(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&u[0], u.size(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&u0, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+}
+
+void DirihleTask::iteration1 (int ax, const std::vector<int> &b, std::vector<double> &buff, std::vector<double> &data) {
+    int *dim = dimension;
+    int d[] = {0, 0, 0};
+    d[ax] = 1;
+    int qq[2];
+    qq[ax % 2] = (ax + COUNT_OF_AXES - 1) % COUNT_OF_AXES;
+    qq[(ax + 1) % 2] = (ax + (COUNT_OF_AXES - 1) * 2) % COUNT_OF_AXES;
+    int dir = ax * 2;
+    if (b[ax] < block[ax] - 1) {
+        for (uint64_t k = 0; k < dim[qq[0]]; ++k) {
+            for (uint64_t j = 0; j < dim[qq[1]]; ++j) {
+                int coeff[3];
+                uint64_t tmp[] = {j, k};
+                for (uint64_t l = 0; l < ax; ++l) {
+                    coeff[l] = tmp[l];
+                }
+                coeff[ax] = dim[ax] - 1;
+                for (uint64_t l = ax + 1; l < COUNT_OF_AXES; ++l) {
+                    coeff[l] = tmp[l - 1];
+                }
+                buff[k * dim[qq[1]] + j] = data[index(coeff[0], coeff[1], coeff[2], dim)];
+            }
+        }
+        MPI_Send(&buff[0], dim[qq[0]] * dim[qq[1]], MPI_DOUBLE, indexBlock(b[X] + d[X], b[Y] + d[Y], b[Z] + d[Z], block), id, MPI_COMM_WORLD);
+    }
+
+    if (b[ax] > 0) {
+        MPI_Recv(&buff[0], dim[qq[0]] * dim[qq[1]], MPI_DOUBLE, indexBlock(b[X] - d[X], b[Y] - d[Y], b[Z] - d[Z], block), indexBlock(b[X] - d[X], b[Y] - d[Y], b[Z] - d[Z], block), MPI_COMM_WORLD, &status);
+        for (uint64_t k = 0; k < dim[qq[0]]; ++k) {
+            for (uint64_t j = 0; j < dim[qq[1]]; ++j) {
+                int coeff[3];
+                uint64_t tmp[] = {j, k};
+                for (uint64_t l = 0; l < ax; ++l) {
+                    coeff[l] = tmp[l];
+                }
+                coeff[ax] = -1;
+                for (uint64_t l = ax + 1; l < COUNT_OF_AXES; ++l) {
+                    coeff[l] = tmp[l - 1];
+                }
+                data[index(coeff[0], coeff[1], coeff[2], dim)] = buff[k * dim[qq[1]] + j];
+            }
+        }
+    } else {
+        for (uint64_t k = 0; k < dim[qq[0]]; ++k) {
+            for (uint64_t j = 0; j < dim[qq[1]]; ++j) {
+                int coeff[3];
+                uint64_t tmp[] = {j, k};
+                for (uint64_t l = 0; l < ax; ++l) {
+                    coeff[l] = tmp[l];
+                }
+                coeff[ax] = -1;
+                for (uint64_t l = ax + 1; l < COUNT_OF_AXES; ++l) {
+                    coeff[l] = tmp[l - 1];
+                }
+                data[index(coeff[0], coeff[1], coeff[2], dim)] = u[dir];
+            }
+        }
+    }
+}
+
+void DirihleTask::iteration2 (int ax, const std::vector<int> &b, std::vector<double> &buff, std::vector<double> &data) {
+    int *dim = dimension;
+    int d[] = {0, 0, 0};
+    d[ax] = 1;
+    int qq[2];
+    qq[ax % 2] = (ax + COUNT_OF_AXES - 1) % COUNT_OF_AXES;
+    qq[(ax + 1) % 2] = (ax + (COUNT_OF_AXES - 1) * 2) % COUNT_OF_AXES;
+    int dir = 1 + ax * 2;
+    if (b[ax] > 0) {
+        for (uint64_t k = 0; k < dim[qq[0]]; ++k) {
+            for (uint64_t j = 0; j < dim[qq[1]]; ++j) {
+                int coeff[3];
+                uint64_t tmp[] = {j, k};
+                for (uint64_t l = 0; l < ax; ++l) {
+                    coeff[l] = tmp[l];
+                }
+                coeff[ax] = 0;
+                for (uint64_t l = ax + 1; l < COUNT_OF_AXES; ++l) {
+                    coeff[l] = tmp[l - 1];
+                }
+                buff[k * dim[qq[1]] + j] = data[index(coeff[0], coeff[1], coeff[2], dim)];
+            }
+        }
+        MPI_Send(&buff[0], dim[qq[0]] * dim[qq[1]], MPI_DOUBLE, indexBlock(b[X] - d[X], b[Y] - d[Y], b[Z] - d[Z], block), id, MPI_COMM_WORLD);
+    }
+
+    if (b[ax] < block[ax] - 1) {
+        MPI_Recv(&buff[0], dim[qq[0]] * dim[qq[1]], MPI_DOUBLE, indexBlock(b[X] + d[X], b[Y] + d[Y], b[Z] + d[Z], block), indexBlock(b[X] + d[X], b[Y] + d[Y], b[Z] + d[Z], block), MPI_COMM_WORLD, &status);
+        for (uint64_t k = 0; k < dim[qq[0]]; ++k) {
+            for (uint64_t j = 0; j < dim[qq[1]]; ++j) {
+                int coeff[3];
+                uint64_t tmp[] = {j, k};
+                for (uint64_t l = 0; l < ax; ++l) {
+                    coeff[l] = tmp[l];
+                }
+                coeff[ax] = dim[ax];
+                for (uint64_t l = ax + 1; l < COUNT_OF_AXES; ++l) {
+                    coeff[l] = tmp[l - 1];
+                }
+                data[index(coeff[0], coeff[1], coeff[2], dim)] = buff[k * dim[qq[1]] + j];
+            }
+        }
+    } else {
+        for (uint64_t k = 0; k < dim[qq[0]]; ++k) {
+            for (uint64_t j = 0; j < dim[qq[1]]; ++j) {
+                int coeff[3];
+                uint64_t tmp[] = {j, k};
+                for (uint64_t l = 0; l < ax; ++l) {
+                    coeff[l] = tmp[l];
+                }
+                coeff[ax] = dim[ax];
+                for (uint64_t l = ax + 1; l < COUNT_OF_AXES; ++l) {
+                    coeff[l] = tmp[l - 1];
+                }
+                data[index(coeff[0], coeff[1], coeff[2], dim)] = u[dir];
+            }
+        }
+    }
+}
+\end{lstlisting}
+
+\vspace{15pt}
+
